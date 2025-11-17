@@ -1,64 +1,6 @@
-"""
-UCF101 skeleton‑based action recognition.
-
-This script implements a small pipeline for classifying human actions
-from 2D skeleton sequences derived from the UCF101 video dataset.  The
-code is designed as a teaching example for how to build a deep
-learning model that operates on skeleton data and can be extended to
-other datasets.  It includes two architectures: a simple baseline
-model that flattens the skeleton sequence and feeds it through a
-multi‑layer perceptron (MLP), and a more expressive model that uses
-an LSTM to capture temporal dynamics before classification.  Both
-models are implemented using PyTorch.
-
-The UCF101 skeleton annotations distributed by OpenMMLab are stored in
-a pickled dictionary with two fields, ``split`` and ``annotations``.
-Each skeleton annotation entry contains metadata about the video
-(including the number of frames and the label) and an array of
-keypoint coordinates of shape ``[M x T x V x C]``, where ``M`` is
-the number of persons, ``T`` is the number of frames, ``V`` is the
-number of keypoints and ``C`` is the coordinate dimension (2 for
-2D skeletons)【374822187822292†L220-L247】.  This script expects the pickled
-file to be downloaded separately (for example from
-`https://download.openmmlab.com/mmaction/v1.0/skeleton/data/ucf101_2d.pkl`) and
-placed on disk.
-
-Usage
------
-To train and evaluate the models, run the script from the command
-line, specifying the path to the skeleton annotation file and
-optionally a subset of classes:
-
-.. code-block:: bash
-
-    python ucf101_skeleton_action_recognition.py \
-        --annotation-path ./ucf101_2d.pkl \
-        --train-split train \
-        --val-split val \
-        --selected-classes 12 20 34 55 70 \
-        --epochs 20 --batch-size 8 --model lstm
-
-Because the full UCF101 dataset is large and training from scratch
-requires significant computational resources, the code allows you to
-select a subset of classes and limit the number of videos per class.
-This makes it feasible to experiment on modest hardware.
-
-Notes
------
-* This script does not perform any intensive pre‑processing on the
-  skeletons.  Depending on your application you may wish to
-  normalise the keypoints (e.g. centre them on the torso, scale them
-  relative to subject height) or augment the data.
-* When using all 101 classes, be aware that the distribution of
-  examples across classes is imbalanced.  Stratified sampling or
-  class weights may improve performance.
-* For a baseline comparison, the original UCF101 paper reported
-  a bag‑of‑visual‑words model achieving 44.5 % accuracy on the
-  dataset【367233494771988†L18-L27】.  Modern 3D convolutional networks such as
-  I3D can reach around 98 % accuracy when pre‑trained on Kinetics
-  and fine‑tuned on UCF101【215100582023531†L20-L27】.
-
-"""
+# Este archivo implementa modelos de aprendizaje profundo para reconocimiento de acciones
+# a partir de secuencias de esqueletos del conjunto de datos UCF101.
+# Los comentarios y cadenas de ayuda están escritos en español.
 
 import argparse
 import os
@@ -73,12 +15,12 @@ from torch.utils.data import Dataset, DataLoader
 
 
 class UCF101SkeletonDataset(Dataset):
-    """PyTorch dataset for UCF101 skeleton sequences.
+    """Dataset de PyTorch para secuencias de esqueletos UCF101.
 
-    Each item in the dataset is a tuple ``(sequence, label)`` where
-    ``sequence`` is a tensor of shape ``[T, V * C]`` representing the
-    concatenated x and y coordinates for all keypoints at each frame.
-    The label is an integer class index.
+    Cada elemento del conjunto de datos es una tupla ``(secuencia, etiqueta)`` donde
+    ``secuencia`` es un tensor de forma ``[T, V * C]`` que representa las coordenadas
+    x e y concatenadas de todos los puntos clave en cada fotograma.
+    La etiqueta es un índice de clase entero.
     """
 
     def __init__(
@@ -90,32 +32,29 @@ class UCF101SkeletonDataset(Dataset):
         num_frames: int = 64,
         random_seed: int = 42,
     ):
-        """Initialise the dataset.
+        """Inicializa el dataset.
 
-        Parameters
+        Parámetros
         ----------
-        annotations : list of dict
-            Parsed ``annotations`` field from the pickled skeleton file.
-        split_ids : list of str
-            Identifiers of videos belonging to this split (e.g. train).
-        selected_classes : list of int, optional
-            If provided, only include annotations whose labels are in this
-            list.  Useful for working with a subset of classes.
-        max_samples_per_class : int, optional
-            Limit the number of videos per class.  If ``None``, include all
-            videos.
-        num_frames : int
-            Number of frames to sample from each video.  Videos shorter
-            than this will be padded; longer videos will be uniformly
-            downsampled.
-        random_seed : int
-            Random seed for reproducible sampling.
+        annotations : lista de ``dict``
+            Campo ``annotations`` analizado del archivo de esqueletos en pickle.
+        split_ids : lista de ``str``
+            Identificadores de videos pertenecientes a esta partición (por ejemplo, ``train``).
+        selected_classes : lista de ``int``, opcional
+            Si se proporciona, solo se incluyen anotaciones cuyos labels están en esta lista.
+            Útil para trabajar con un subconjunto de clases.
+        max_samples_per_class : ``int``, opcional
+            Limita el número de videos por clase.  Si es ``None``, se incluyen todos los videos.
+        num_frames : ``int``
+            Número de frames a muestrear de cada video.  Los videos más cortos se rellenan y los más largos se muestrean uniformemente.
+        random_seed : ``int``
+            Semilla aleatoria para muestreo reproducible.
         """
         super().__init__()
         self.num_frames = num_frames
         self.random = random.Random(random_seed)
 
-        # Build mapping from video identifier to annotation.
+        # Construir un mapeo del identificador de video a la anotación.
         video_to_ann = {ann["frame_dir"]: ann for ann in annotations}
         entries: List[Tuple[np.ndarray, int]] = []
         per_class_counts: dict[int, int] = {}
@@ -126,18 +65,18 @@ class UCF101SkeletonDataset(Dataset):
             label = ann["label"]
             if selected_classes is not None and label not in selected_classes:
                 continue
-            # Enforce maximum number of samples per class if requested.
-            if max_samples_per_class is not None:
-                count = per_class_counts.get(label, 0)
-                if count >= max_samples_per_class:
-                    continue
-                per_class_counts[label] = count + 1
-            # ann["keypoint"] shape: [M, T, V, C].  Use first person.
+            # Aplicar el número máximo de muestras por clase si se solicita.
+                if max_samples_per_class is not None:
+                    count = per_class_counts.get(label, 0)
+                    if count >= max_samples_per_class:
+                        continue
+                    per_class_counts[label] = count + 1
+            # ann["keypoint"] forma: [M, T, V, C]. Usar la primera persona.
             keypoints = ann["keypoint"][0]  # shape [T, V, C]
             entries.append((keypoints, label))
         self.entries = entries
 
-        # Map labels to contiguous indices if using a subset of classes.
+        # Mapear etiquetas a índices contiguos si se usa un subconjunto de clases.
         if selected_classes is not None:
             self.label_map = {orig: idx for idx, orig in enumerate(sorted(selected_classes))}
         else:
@@ -148,26 +87,26 @@ class UCF101SkeletonDataset(Dataset):
         return len(self.entries)
 
     def _temporal_sample(self, keypoints: np.ndarray) -> np.ndarray:
-        """Sample a fixed number of frames from a skeleton sequence.
+        """Muestrea un número fijo de frames de una secuencia de esqueleto.
 
-        Parameters
+        Parámetros
         ----------
-        keypoints : ndarray of shape [T, V, C]
-            Original sequence of keypoint coordinates.
+        keypoints : ndarray de forma [T, V, C]
+            Secuencia original de coordenadas de puntos clave.
 
-        Returns
+        Retorna
         -------
-        ndarray of shape [self.num_frames, V, C]
-            Uniformly resampled sequence padded or downsampled to
+        ndarray de forma [self.num_frames, V, C]
+            Secuencia re-muestreada uniformemente rellena o reducida a
             ``self.num_frames`` frames.
         """
         T, V, C = keypoints.shape
         if T >= self.num_frames:
-            # Uniformly sample indices over the temporal dimension.
+            # Muestrear índices uniformemente sobre la dimensión temporal.
             indices = np.linspace(0, T - 1, num=self.num_frames, dtype=np.int32)
             sampled = keypoints[indices]
         else:
-            # Pad by repeating the last frame.
+            # Rellenar repitiendo el último frame.
             pad_len = self.num_frames - T
             pad = np.repeat(keypoints[-1][np.newaxis, :, :], pad_len, axis=0)
             sampled = np.concatenate([keypoints, pad], axis=0)
@@ -176,9 +115,9 @@ class UCF101SkeletonDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         keypoints, label = self.entries[idx]
         seq = self._temporal_sample(keypoints)  # [T, V, C]
-        # Flatten V and C into a single dimension per frame.
+        # Aplanar V y C en una sola dimensión por fotograma.
         seq = seq.reshape(self.num_frames, -1)  # [T, V*C]
-        # Normalise each sequence separately.
+        # Normalizar cada secuencia por separado.
         mean = np.mean(seq, axis=0, keepdims=True)
         std = np.std(seq, axis=0, keepdims=True) + 1e-6
         norm_seq = (seq - mean) / std
@@ -187,11 +126,11 @@ class UCF101SkeletonDataset(Dataset):
 
 
 class BaselineMLP(nn.Module):
-    """Simple baseline MLP for skeleton classification.
+    """Perceptrón multicapa (MLP) simple como línea base para la clasificación de esqueletos.
 
-    This model ignores the temporal order of the skeleton sequence by
-    flattening all frames into a single vector.  It passes this vector
-    through two hidden layers and outputs class scores.
+    Este modelo ignora el orden temporal de la secuencia de esqueletos al aplanar
+    todos los fotogramas en un único vector.  Pasa este vector a través de dos capas ocultas
+    y produce puntuaciones de clase.
     """
 
     def __init__(self, input_dim: int, num_classes: int, hidden_dim: int = 256):
@@ -212,10 +151,10 @@ class BaselineMLP(nn.Module):
 
 
 class LSTMClassifier(nn.Module):
-    """LSTM‑based classifier for skeleton sequences.
+    """Clasificador basado en LSTM para secuencias de esqueletos.
 
-    Processes the sequence with an LSTM and uses the final hidden
-    state for classification.
+    Procesa la secuencia con un LSTM y utiliza el estado oculto final
+    para realizar la clasificación.
     """
 
     def __init__(self, input_dim: int, hidden_dim: int, num_layers: int, num_classes: int, dropout: float = 0.5):
@@ -230,18 +169,18 @@ class LSTMClassifier(nn.Module):
         self.fc = nn.Linear(hidden_dim, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: [batch_size, T, input_dim]
+        # x: tensor de forma [tamaño_de_lote, T, dimensión_de_entrada]
         outputs, (h_n, _) = self.lstm(x)
-        last_hidden = h_n[-1]  # [batch_size, hidden_dim]
+        # Tomar el último estado oculto de la pila de capas LSTM
+        last_hidden = h_n[-1]  # [tamaño_de_lote, dimensión_oculta]
         return self.fc(last_hidden)
 
 
-
 def collate_fn(batch: List[Tuple[torch.Tensor, int]]) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Collate function to batch skeleton sequences.
+    """Función de agrupamiento (collate) para secuencias de esqueletos.
 
-    Since all sequences are resampled to the same length, we can simply
-    stack them along the first dimension.
+    Como todas las secuencias se re-muestrean a la misma longitud, simplemente
+    se apilan a lo largo de la primera dimensión para formar un lote.
     """
     sequences, labels = zip(*batch)
     stacked = torch.stack(sequences, dim=0)
@@ -249,20 +188,18 @@ def collate_fn(batch: List[Tuple[torch.Tensor, int]]) -> Tuple[torch.Tensor, tor
     return stacked, labels_tensor
 
 
-
 def load_skeleton_annotations(annotation_path: str) -> Tuple[dict, List[dict]]:
-    """Load skeleton annotations from a pickled file.
+    """Carga las anotaciones de esqueletos desde un archivo pickle.
 
-    Returns a tuple of (split, annotations) where ``split`` is a
-    mapping from split names to lists of video identifiers, and
-    ``annotations`` is a list of annotation dictionaries.
+    Devuelve una tupla ``(split, annotations)`` donde ``split`` es un
+    diccionario que mapea nombres de partición a listas de identificadores de video,
+    y ``annotations`` es una lista de diccionarios de anotación.
     """
     with open(annotation_path, "rb") as f:
         data = pickle.load(f, encoding="latin1")
     split = data["split"]
     annotations = data["annotations"]
     return split, annotations
-
 
 
 def train_one_epoch(model: nn.Module, dataloader: DataLoader, criterion: nn.Module, optimizer: torch.optim.Optimizer, device: torch.device) -> float:
@@ -295,22 +232,62 @@ def evaluate_accuracy(model: nn.Module, dataloader: DataLoader, device: torch.de
     return correct / total if total > 0 else 0.0
 
 
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train a skeleton‑based action recognition model on UCF101.")
-    parser.add_argument("--annotation-path", type=str, required=True, help="Path to the UCF101 skeleton annotation .pkl file.")
-    parser.add_argument("--train-split", type=str, default="train", help="Name of the split to use for training.")
-    parser.add_argument("--val-split", type=str, default="val", help="Name of the split to use for validation.")
-    parser.add_argument("--selected-classes", type=int, nargs="*", help="List of class indices to include.")
-    parser.add_argument("--max-samples-per-class", type=int, default=None, help="Maximum number of videos per class to include.")
-    parser.add_argument("--num-frames", type=int, default=64, help="Number of frames to sample from each video.")
-    parser.add_argument("--batch-size", type=int, default=8, help="Batch size for training.")
-    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs.")
-    parser.add_argument("--learning-rate", type=float, default=1e-3, help="Learning rate.")
-    parser.add_argument("--model", type=str, choices=["mlp", "lstm"], default="mlp", help="Model architecture to use.")
-    parser.add_argument("--hidden-dim", type=int, default=256, help="Hidden dimension for MLP or LSTM.")
-    parser.add_argument("--num-layers", type=int, default=2, help="Number of LSTM layers (used only for LSTM model).")
-    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device to train on.")
+    parser = argparse.ArgumentParser(
+        description="Entrena un modelo de reconocimiento de acciones basado en esqueletos en UCF101."
+    )
+    parser.add_argument(
+        "--annotation-path", type=str, required=True,
+        help="Ruta al archivo de anotaciones de esqueletos (.pkl) de UCF101."
+    )
+    parser.add_argument(
+        "--train-split", type=str, default="train",
+        help="Nombre de la partición a utilizar para entrenamiento."
+    )
+    parser.add_argument(
+        "--val-split", type=str, default="val",
+        help="Nombre de la partición a utilizar para validación."
+    )
+    parser.add_argument(
+        "--selected-classes", type=int, nargs="*",
+        help="Lista de índices de clase a incluir (opcional)."
+    )
+    parser.add_argument(
+        "--max-samples-per-class", type=int, default=None,
+        help="Número máximo de videos por clase a incluir (opcional)."
+    )
+    parser.add_argument(
+        "--num-frames", type=int, default=64,
+        help="Número de fotogramas a muestrear de cada video."
+    )
+    parser.add_argument(
+        "--batch-size", type=int, default=8,
+        help="Tamaño de lote para el entrenamiento."
+    )
+    parser.add_argument(
+        "--epochs", type=int, default=10,
+        help="Número de épocas de entrenamiento."
+    )
+    parser.add_argument(
+        "--learning-rate", type=float, default=1e-3,
+        help="Tasa de aprendizaje."
+    )
+    parser.add_argument(
+        "--model", type=str, choices=["mlp", "lstm"], default="mlp",
+        help="Arquitectura del modelo a utilizar (mlp o lstm)."
+    )
+    parser.add_argument(
+        "--hidden-dim", type=int, default=256,
+        help="Dimensión oculta para el MLP o el LSTM."
+    )
+    parser.add_argument(
+        "--num-layers", type=int, default=2,
+        help="Número de capas LSTM (solo para el modelo LSTM)."
+    )
+    parser.add_argument(
+        "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu",
+        help="Dispositivo en el que se entrenará el modelo."
+    )
     args = parser.parse_args()
 
     # Load dataset.
